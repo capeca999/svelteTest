@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html data-bs-theme="light">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
+    %sveltekit.head%
+    <title>Home - Brand</title>
+    <link rel="stylesheet" href="/assets/bootstrap/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" />
+    <link rel="stylesheet" href="/assets/css/animate.min.css" />
+    <link rel="stylesheet" href="/assets/css/pikaday.min.css" />
+    <link rel="stylesheet" href="/assets/css/Zig-Zag-Timeline-v3-zigzag-timeline-v2.css" />
+</head>
+
+<body>
+<nav
+        class="navbar navbar-expand-lg fixed-top portfolio-navbar gradient navbar-dark"
+        style="color: rgb(59,6,6);background: linear-gradient(rgb(252,252,252) 99%, white, black 100%, rgb(181,181,181) 100%, rgb(179,179,179) 100%, rgb(159,159,159) 100%, rgb(221,221,221) 100%, rgb(239,239,239) 100%);">
+    <div class="container">
+        <a class="navbar-brand tada animated logo" href="/" style="color: rgb(0,0,0);">Francisco Manuel Pinazo Guna</a>
+        <button data-bs-toggle="collapse" class="navbar-toggler" data-bs-target="#navbarNav">
+            <span class="visually-hidden">Toggle navigation</span><span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item"><a class="nav-link active bounce animated" href="/" style="color: rgb(0,0,0);">Landing Site</a></li>
+                <li class="nav-item"><a class="nav-link" href="/projects-grid-cards" style="color: rgb(0,0,0);">Projects</a></li>
+                <li class="nav-item"><a class="nav-link" href="/cv" style="color: rgb(0,0,0);">About Me</a></li>
+                <li class="nav-item"><a class="nav-link" href="/hire-me" style="color: rgb(0,0,0);">About This Page</a></li>
+            </ul>
+        </div>
+        <a href="/projects-grid-cards" style="color: rgb(47,6,6);">HireMe</a>
+    </div>
+</nav>
+
+<main style="padding-top: 80px;">
+    %sveltekit.body%
+</main>
+
+<script src="/assets/bootstrap/js/bootstrap.min.js"></script>
+<script src="/assets/js/bs-init.js"></script>
+<script src="/assets/js/pikaday.min.js"></script>
+<script src="/assets/js/theme.js"></script>
+</body>
+
+</html>

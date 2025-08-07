@@ -1,3 +1,7 @@
+
+<svelte:head>
+    <link rel="icon" href="/favicon.png" />
+</svelte:head>
 <section class="portfolio-block block-intro py-5 text-center" style="padding-top: 120px;">    <div class="container">
         <p style="font-size: 30px;">
             Programming is like a pie<br />

@@ -36,6 +36,27 @@
 
     const clock = new THREE.Clock();
 
+    // --- MÓVIL / JOYSTICK ---
+    const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+    let HUD: HTMLDivElement;
+    let joyBase: HTMLDivElement;
+    let joyKnob: HTMLDivElement;
+    let fireBtn: HTMLButtonElement;
+    let lookArea: HTMLDivElement;
+
+    const joyState = {
+        active: false,
+        startX: 0, startY: 0,
+        dx: 0, dy: 0, // desplazamiento (px)
+        normX: 0, normY: 0 // vector normalizado [-1,1]
+    };
+    const JOY_RADIUS = 60; // px
+    const LOOK_SENS = 0.18; // sensibilidad drag mirar (grados por px approx)
+
+    // acumulado de mirada móvil
+    let yaw = 0;   // rotación Y
+    let pitch = 0; // rotación X (clamp [-89, 89])
+
     onMount(() => {
         init();
         animate();
@@ -48,9 +69,7 @@
         document.removeEventListener("keyup", onKeyUp);
         document.removeEventListener("mousedown", onMouseDown);
         window.removeEventListener("resize", onWindowResize);
-        if (renderer) {
-            renderer.dispose();
-        }
+        if (renderer) renderer.dispose();
     }
 
     function init() {
@@ -64,10 +83,12 @@
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         container.appendChild(renderer.domElement);
 
-        // Controles FPS
+        // Controles FPS (solo desktop)
         controls = new PointerLockControls(camera, document.body);
         scene.add(controls.getObject());
-        container.addEventListener("click", () => controls.lock());
+        if (!isTouch) {
+            container.addEventListener("click", () => controls.lock());
+        }
 
         // Luces
         scene.add(new THREE.AmbientLight(0xffffff, 0.35));
@@ -93,40 +114,21 @@
         );
         ceil.rotation.x = Math.PI / 2;
         ceil.position.y = 6;
-        ceil.receiveShadow = false;
         scene.add(ceil);
 
         // Paredes (4)
         const wallMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, side: THREE.DoubleSide });
         const wallGeo = new THREE.PlaneGeometry(ROOM_SIZE, 6);
 
-        const wallN = new THREE.Mesh(wallGeo, wallMat);
-        wallN.position.set(0, 3, -HALF);
-        wallN.receiveShadow = true;
-        scene.add(wallN);
+        const wallN = new THREE.Mesh(wallGeo, wallMat); wallN.position.set(0, 3, -HALF); scene.add(wallN);
+        const wallS = new THREE.Mesh(wallGeo, wallMat); wallS.rotation.y = Math.PI; wallS.position.set(0, 3, HALF); scene.add(wallS);
+        const wallE = new THREE.Mesh(wallGeo, wallMat); wallE.rotation.y = -Math.PI / 2; wallE.position.set(HALF, 3, 0); scene.add(wallE);
+        const wallW = new THREE.Mesh(wallGeo, wallMat); wallW.rotation.y =  Math.PI / 2; wallW.position.set(-HALF, 3, 0); scene.add(wallW);
 
-        const wallS = new THREE.Mesh(wallGeo, wallMat);
-        wallS.rotation.y = Math.PI;
-        wallS.position.set(0, 3, HALF);
-        wallS.receiveShadow = true;
-        scene.add(wallS);
-
-        const wallE = new THREE.Mesh(wallGeo, wallMat);
-        wallE.rotation.y = -Math.PI / 2;
-        wallE.position.set(HALF, 3, 0);
-        wallE.receiveShadow = true;
-        scene.add(wallE);
-
-        const wallW = new THREE.Mesh(wallGeo, wallMat);
-        wallW.rotation.y = Math.PI / 2;
-        wallW.position.set(-HALF, 3, 0);
-        wallW.receiveShadow = true;
-        scene.add(wallW);
-
-        // Muebles (sencillos)
+        // Muebles
         const tableTop = addFurniture();
 
-        // Cubos de tecnologías encima de la mesa (rompibles)
+        // Cubos tech en la mesa
         addTechCubesOnTable(tableTop);
 
         // Arma (dummy en cámara)
@@ -137,7 +139,7 @@
         gun.position.set(0.5, -0.4, -1.2);
         camera.add(gun);
 
-        // Cámara/posición inicial
+        // Posición inicial
         controls.getObject().position.set(0, 1.6, 4);
 
         // Sonido
@@ -147,139 +149,98 @@
         hitSound = new THREE.Audio(listener);
         const audioLoader = new THREE.AudioLoader();
         audioLoader.load("/assets/sounds/shoot.mp3", (b) => shootSound.setBuffer(b));
-        audioLoader.load("/assets/sounds/hit.mp3", (b) => hitSound.setBuffer(b));
+        audioLoader.load("/assets/sounds/hit.mp3",  (b) => hitSound.setBuffer(b));
 
-        // Eventos
+        // Eventos teclado/ratón
         document.addEventListener("keydown", onKeyDown);
         document.addEventListener("keyup", onKeyUp);
         document.addEventListener("mousedown", onMouseDown);
         window.addEventListener("resize", onWindowResize);
         onWindowResize();
+
+        // Si es móvil, preparar HUD táctil
+        if (isTouch) setupMobileHUD();
     }
 
     function addFurniture() {
-        // Mesa en el centro
+        // Mesa
         const tableTop = new THREE.Mesh(
             new THREE.BoxGeometry(3, 0.2, 1.6),
             new THREE.MeshStandardMaterial({ color: 0x7a5a3a })
         );
         tableTop.position.set(0, 1, 0);
-        tableTop.castShadow = true;
-        tableTop.receiveShadow = true;
+        tableTop.castShadow = tableTop.receiveShadow = true;
         scene.add(tableTop);
 
         const legGeo = new THREE.BoxGeometry(0.15, 1, 0.15);
         const legMat = new THREE.MeshStandardMaterial({ color: 0x5c4129 });
-        const legs = [
-            new THREE.Mesh(legGeo, legMat),
-            new THREE.Mesh(legGeo, legMat),
-            new THREE.Mesh(legGeo, legMat),
-            new THREE.Mesh(legGeo, legMat)
-        ];
-        const legOffsetX = 1.3, legOffsetZ = 0.65;
-        legs[0].position.set( legOffsetX, 0.5,  legOffsetZ);
-        legs[1].position.set(-legOffsetX, 0.5,  legOffsetZ);
-        legs[2].position.set( legOffsetX, 0.5, -legOffsetZ);
-        legs[3].position.set(-legOffsetX, 0.5, -legOffsetZ);
-        legs.forEach(l => { l.castShadow = true; l.receiveShadow = true; scene.add(l); });
+        const legs = [0,1,2,3].map(() => new THREE.Mesh(legGeo, legMat));
+        const ox = 1.3, oz = 0.65;
+        legs[0].position.set( ox, 0.5,  oz);
+        legs[1].position.set(-ox, 0.5,  oz);
+        legs[2].position.set( ox, 0.5, -oz);
+        legs[3].position.set(-ox, 0.5, -oz);
+        legs.forEach(l => { l.castShadow = l.receiveShadow = true; scene.add(l); });
 
         // Sofá
         const sofa = new THREE.Mesh(
             new THREE.BoxGeometry(3.2, 1, 1.2),
             new THREE.MeshStandardMaterial({ color: 0x3a6a7a })
-        );
-        sofa.position.set(-5, 0.5, -3);
-        sofa.castShadow = true;
-        sofa.receiveShadow = true;
-        scene.add(sofa);
+        ); sofa.position.set(-5, 0.5, -3); sofa.castShadow = sofa.receiveShadow = true; scene.add(sofa);
 
         // Estantería
         const shelf = new THREE.Mesh(
             new THREE.BoxGeometry(0.4, 2.4, 2.5),
             new THREE.MeshStandardMaterial({ color: 0x553333 })
-        );
-        shelf.position.set(8, 1.2, 0);
-        shelf.castShadow = true;
-        shelf.receiveShadow = true;
-        scene.add(shelf);
+        ); shelf.position.set(8, 1.2, 0); shelf.castShadow = shelf.receiveShadow = true; scene.add(shelf);
 
-        // Lámpara de pie
-        const lampBase = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.06, 0.06, 1.2, 16),
-            new THREE.MeshStandardMaterial({ color: 0xaaaaaa })
-        );
-        lampBase.position.set(5, 0.6, -6);
-        lampBase.castShadow = true;
-        lampBase.receiveShadow = true;
-        scene.add(lampBase);
-        const lampShade = new THREE.Mesh(
-            new THREE.ConeGeometry(0.5, 0.6, 24),
-            new THREE.MeshStandardMaterial({ color: 0xdddddd })
-        );
-        lampShade.position.set(5, 1.5, -6);
-        lampShade.castShadow = true;
-        lampShade.receiveShadow = true;
-        scene.add(lampShade);
+        // Lámpara
+        const lampBase = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 16), new THREE.MeshStandardMaterial({ color: 0xaaaaaa }));
+        lampBase.position.set(5, 0.6, -6); lampBase.castShadow = lampBase.receiveShadow = true; scene.add(lampBase);
+        const lampShade = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.6, 24), new THREE.MeshStandardMaterial({ color: 0xdddddd }));
+        lampShade.position.set(5, 1.5, -6); lampShade.castShadow = lampShade.receiveShadow = true; scene.add(lampShade);
 
-        // Jarrón sobre la mesa (target rompible)
-        const vase = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.25, 0.15, 0.5, 24),
-            new THREE.MeshStandardMaterial({ color: 0xbfd8f5 })
-        );
-        vase.position.set(0, 1.25, 0);
-        vase.castShadow = true;
-        vase.receiveShadow = true;
-        scene.add(vase);
+        // Jarrón (rompible)
+        const vase = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.15, 0.5, 24), new THREE.MeshStandardMaterial({ color: 0xbfd8f5 }));
+        vase.position.set(0, 1.25, 0); vase.castShadow = vase.receiveShadow = true; scene.add(vase);
         breakableTargets.push(vase);
 
         return tableTop;
     }
 
-    // Cubos tech (Svelte, TypeScript, Vercel) sobre la mesa
     function addTechCubesOnTable(tableTop: THREE.Mesh) {
         const loader = new THREE.TextureLoader();
-        const texPaths = [
-            "/assets/img/tech/svelte.png",
-            "/assets/img/tech/type.png",
-            "/assets/img/tech/vercel.webp"
+        const mats = [
+            new THREE.MeshStandardMaterial({ map: loader.load("/assets/img/tech/svelte.png") }),
+            new THREE.MeshStandardMaterial({ map: loader.load("/assets/img/tech/type.png") }),
+            new THREE.MeshStandardMaterial({ map: loader.load("/assets/img/tech/vercel.webp") }),
         ];
-        const mats = texPaths.map(p => new THREE.MeshStandardMaterial({ map: loader.load(p) }));
-
-        const size = 0.7; // tamaño del cubo
+        const size = 0.7;
         const cubeGeo = new THREE.BoxGeometry(size, size, size);
-        const y = tableTop.position.y + 0.2 + size / 2 + 0.02; // justo encima del tablero
-
-        // posiciones sobre la mesa (tres cubos)
-        const positions: Array<[number, number, number]> = [
-            [-0.9, y,  0.0], // izquierda
-            [ 0.0, y,  0.0], // centro
-            [ 0.9, y,  0.0], // derecha
-        ];
-
-        positions.forEach((pos, i) => {
+        const y = tableTop.position.y + 0.2 + size / 2 + 0.02;
+        const positions: Array<[number, number, number]> = [[-0.9, y, 0],[0, y, 0],[0.9, y, 0]];
+        positions.forEach((p,i) => {
             const cube = new THREE.Mesh(cubeGeo, mats[i % mats.length]);
-            cube.position.set(pos[0], pos[1], pos[2]);
-            cube.castShadow = true;
-            cube.receiveShadow = true;
+            cube.position.set(...p);
+            cube.castShadow = cube.receiveShadow = true;
             scene.add(cube);
             breakableTargets.push(cube);
         });
     }
 
-    // Entrada
+    // Entrada desktop
     function onKeyDown(e: KeyboardEvent) {
+        if (isTouch) return;
         switch (e.code) {
             case "KeyW": move.forward = true; break;
             case "KeyA": move.left = true; break;
             case "KeyS": move.backward = true; break;
             case "KeyD": move.right = true; break;
-            case "Space":
-                if (canJump) velocity.y += 5;
-                canJump = false;
-                break;
+            case "Space": if (canJump) velocity.y += 5; canJump = false; break;
         }
     }
     function onKeyUp(e: KeyboardEvent) {
+        if (isTouch) return;
         switch (e.code) {
             case "KeyW": move.forward = false; break;
             case "KeyA": move.left = false; break;
@@ -288,6 +249,7 @@
         }
     }
     function onMouseDown(e: MouseEvent) {
+        if (isTouch) return;
         if (e.button === 0) shoot();
     }
 
@@ -303,7 +265,7 @@
         const start = camera.position.clone().add(dir.clone().multiplyScalar(1));
         sphere.position.copy(start);
 
-        const speed = 28; // más rápido para una sensación FPS
+        const speed = 28;
         const vel = dir.clone().multiplyScalar(speed);
 
         scene.add(sphere);
@@ -312,71 +274,154 @@
         if ((shootSound as any).isBuffer) shootSound.play();
     }
 
-    // Ragdoll "chispas"
     function spawnRagdollPieces(position: THREE.Vector3) {
         for (let i = 0; i < 14; i++) {
             const geo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
             const mat = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff });
             const piece = new THREE.Mesh(geo, mat);
             piece.position.copy(position);
-            const vel = new THREE.Vector3(
-                (Math.random() - 0.5) * 2,
-                Math.random() * 2,
-                (Math.random() - 0.5) * 2
-            );
+            const vel = new THREE.Vector3((Math.random()-0.5)*2, Math.random()*2, (Math.random()-0.5)*2);
             ragdollPieces.push({ mesh: piece, vel });
             piece.castShadow = true;
             scene.add(piece);
         }
     }
 
-    // Al romper, cae una caja del cielo
     function dropCrateFromSky(x = 0, z = 0) {
-        const crate = new THREE.Mesh(
-            new THREE.BoxGeometry(0.8, 0.8, 0.8),
-            new THREE.MeshStandardMaterial({ color: 0x9b6b3d })
-        );
+        const crate = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshStandardMaterial({ color: 0x9b6b3d }));
         crate.position.set(x, 10, z);
-        crate.castShadow = true;
-        crate.receiveShadow = true;
+        crate.castShadow = crate.receiveShadow = true;
         scene.add(crate);
-
         const body: Body = { mesh: crate, vel: new THREE.Vector3(0, 0, 0), asleep: false };
         fallingCrates.push(body);
+    }
+
+    // --- Controles móviles (joystick + drag look + botón fire) ---
+    function setupMobileHUD() {
+        // mostrar HUD
+        HUD?.classList.add("show");
+
+        // JOYSTICK (touchstart en base)
+        const onStart = (e: TouchEvent) => {
+            e.preventDefault();
+            const t = e.changedTouches[0];
+            joyState.active = true;
+            const rect = joyBase.getBoundingClientRect();
+            joyState.startX = rect.left + rect.width / 2;
+            joyState.startY = rect.top + rect.height / 2;
+            updateJoy(t.clientX, t.clientY);
+        };
+        const onMove = (e: TouchEvent) => {
+            if (!joyState.active) return;
+            const t = e.changedTouches[0];
+            updateJoy(t.clientX, t.clientY);
+        };
+        const onEnd = (e: TouchEvent) => {
+            joyState.active = false;
+            joyState.dx = joyState.dy = 0;
+            joyState.normX = joyState.normY = 0;
+            joyKnob.style.transform = `translate(0px,0px)`;
+        };
+
+        joyBase.addEventListener("touchstart", onStart, { passive: false });
+        joyBase.addEventListener("touchmove",  onMove,  { passive: false });
+        joyBase.addEventListener("touchend",   onEnd,   { passive: false });
+        joyBase.addEventListener("touchcancel",onEnd,   { passive: false });
+
+        // MIRADA (arrastre en lookArea)
+        let lookActive = false;
+        let lastX = 0, lastY = 0;
+        const lookStart = (e: TouchEvent) => {
+            e.preventDefault();
+            lookActive = true;
+            const t = e.changedTouches[0];
+            lastX = t.clientX; lastY = t.clientY;
+        };
+        const lookMove = (e: TouchEvent) => {
+            if (!lookActive) return;
+            const t = e.changedTouches[0];
+            const dx = t.clientX - lastX;
+            const dy = t.clientY - lastY;
+            lastX = t.clientX; lastY = t.clientY;
+
+            yaw   -= dx * (LOOK_SENS * Math.PI/180); // rad
+            pitch -= dy * (LOOK_SENS * Math.PI/180);
+            const maxPitch = THREE.MathUtils.degToRad(89);
+            pitch = THREE.MathUtils.clamp(pitch, -maxPitch, maxPitch);
+        };
+        const lookEnd = () => { lookActive = false; };
+
+        lookArea.addEventListener("touchstart", lookStart, { passive: false });
+        lookArea.addEventListener("touchmove",  lookMove,  { passive: false });
+        lookArea.addEventListener("touchend",   lookEnd,   { passive: false });
+        lookArea.addEventListener("touchcancel",lookEnd,   { passive: false });
+
+        // DISPARO
+        fireBtn.addEventListener("touchstart", (e) => { e.preventDefault(); shoot(); }, { passive: false });
+    }
+
+    function updateJoy(x: number, y: number) {
+        const dx = x - joyState.startX;
+        const dy = y - joyState.startY;
+        const dist = Math.min(Math.hypot(dx, dy), JOY_RADIUS);
+        const angle = Math.atan2(dy, dx);
+        const nx = Math.cos(angle) * (dist / JOY_RADIUS);
+        const ny = Math.sin(angle) * (dist / JOY_RADIUS);
+        joyState.dx = dx; joyState.dy = dy;
+        joyState.normX = nx; joyState.normY = ny;
+        joyKnob.style.transform = `translate(${nx*JOY_RADIUS}px, ${ny*JOY_RADIUS}px)`;
     }
 
     // Animación
     function animate() {
         animationId = requestAnimationFrame(animate);
 
-        const delta = Math.min(clock.getDelta(), 0.05); // cap por estabilidad
+        const delta = Math.min(clock.getDelta(), 0.05);
 
-        // amortiguación
-        velocity.x -= velocity.x * 10.0 * delta;
-        velocity.z -= velocity.z * 10.0 * delta;
-        velocity.y -= 9.8 * 3.0 * delta; // gravedad jugador
-
-        direction.z = Number(move.forward) - Number(move.backward);
-        direction.x = Number(move.right) - Number(move.left);
+        // --- Input de movimiento ---
+        if (!isTouch) {
+            // teclado
+            direction.set(0,0,0);
+            direction.z = Number(move.forward) - Number(move.backward);
+            direction.x = Number(move.right) - Number(move.left);
+        } else {
+            // joystick: joyState.normX (derecha+), normY (abajo+)
+            // Queremos: adelante = -normY, derecha = +normX
+            direction.set(joyState.normX, 0, -joyState.normY);
+        }
         direction.normalize();
 
+        // amortiguación + gravedad
+        velocity.x -= velocity.x * 10.0 * delta;
+        velocity.z -= velocity.z * 10.0 * delta;
+        velocity.y -= 9.8 * 3.0 * delta;
+
         const speed = 10.0;
-        if (move.forward || move.backward) velocity.z -= direction.z * speed * delta;
-        if (move.left || move.right) velocity.x -= direction.x * speed * delta;
+        if (direction.lengthSq() > 0) {
+            velocity.z -= direction.z * speed * delta;
+            velocity.x -= direction.x * speed * delta;
+        }
 
         // movimiento jugador
         controls.moveRight(-velocity.x * delta);
         controls.moveForward(-velocity.z * delta);
         controls.getObject().position.y += velocity.y * delta;
 
-        // Suelo para jugador
+        // Suelo
         if (controls.getObject().position.y < 1.6) {
             velocity.y = 0;
             controls.getObject().position.y = 1.6;
             canJump = true;
         }
 
-        // Limitar a la habitación
+        // Mirar (móvil: aplicamos yaw/pitch manual; desktop: lo hace PointerLock)
+        if (isTouch) {
+            // rotamos el objeto del control (y cámara para pitch)
+            controls.getObject().rotation.y = yaw;
+            camera.rotation.x = pitch;
+        }
+
+        // Limitar a habitación
         const pos = controls.getObject().position;
         const margin = 1.0;
         pos.x = THREE.MathUtils.clamp(pos.x, -HALF + margin, HALF - margin);
@@ -386,33 +431,17 @@
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const p = projectiles[i];
             p.mesh.position.addScaledVector(p.vel, delta);
-
-            // colisión con paredes: destruir bala
             if (Math.abs(p.mesh.position.x) > HALF - 0.3 || Math.abs(p.mesh.position.z) > HALF - 0.3) {
-                scene.remove(p.mesh);
-                projectiles.splice(i, 1);
-                continue;
+                scene.remove(p.mesh); projectiles.splice(i, 1); continue;
             }
-
-            // hit con targets rompibles (jarrón + cubos tech)
             for (let j = breakableTargets.length - 1; j >= 0; j--) {
                 const t = breakableTargets[j];
-
-                // Umbral de impacto un poco mayor para cubos
                 const threshold = t.geometry instanceof THREE.BoxGeometry ? 0.6 : 0.5;
-
                 if (p.mesh.position.distanceTo(t.position) < threshold) {
                     if ((hitSound as any).isBuffer) hitSound.play();
                     spawnRagdollPieces(t.position.clone());
-
-                    // eliminar target
-                    scene.remove(t);
-                    breakableTargets.splice(j, 1);
-                    // eliminar proyectil
-                    scene.remove(p.mesh);
-                    projectiles.splice(i, 1);
-
-                    // lanzar caja desde el cielo, caída dentro de la habitación
+                    scene.remove(t); breakableTargets.splice(j,1);
+                    scene.remove(p.mesh); projectiles.splice(i,1);
                     const rx = THREE.MathUtils.randFloatSpread(ROOM_SIZE - 4);
                     const rz = THREE.MathUtils.randFloatSpread(ROOM_SIZE - 4);
                     dropCrateFromSky(rx, rz);
@@ -433,53 +462,30 @@
             }
         }
 
-        // Física simple de cajas que caen
-        const restitution = 0.35; // rebote
-        const friction = 0.85;    // fricción horizontal al tocar suelo
+        // Física simple de cajas
+        const restitution = 0.35, friction = 0.85;
         for (let i = fallingCrates.length - 1; i >= 0; i--) {
             const c = fallingCrates[i];
             if (c.asleep) continue;
-
-            // gravedad
             c.vel.y -= 9.8 * 2.2 * delta;
-            // integrar
             c.mesh.position.addScaledVector(c.vel, delta);
 
-            // colisión con suelo (y=0.4 por la mitad de la caja ~0.4)
             const halfH = 0.4;
             if (c.mesh.position.y - halfH < 0) {
                 c.mesh.position.y = halfH;
-                // rebote vertical
                 c.vel.y = -c.vel.y * restitution;
-                // fricción
-                c.vel.x *= friction;
-                c.vel.z *= friction;
-
-                // dormir si velocidad muy baja
+                c.vel.x *= friction; c.vel.z *= friction;
                 if (Math.abs(c.vel.y) < 0.5 && Math.hypot(c.vel.x, c.vel.z) < 0.2) {
-                    c.vel.set(0, 0, 0);
-                    c.asleep = true;
+                    c.vel.set(0,0,0); c.asleep = true;
                 }
             }
 
-            // colisión con paredes (simple clamp con rebote)
             const half = 0.4;
-            if (c.mesh.position.x > HALF - half) {
-                c.mesh.position.x = HALF - half;
-                c.vel.x = -c.vel.x * restitution;
-            } else if (c.mesh.position.x < -HALF + half) {
-                c.mesh.position.x = -HALF + half;
-                c.vel.x = -c.vel.x * restitution;
-            }
-            if (c.mesh.position.z > HALF - half) {
-                c.mesh.position.z = HALF - half;
-                c.vel.z = -c.vel.z * restitution;
-            } else if (c.mesh.position.z < -HALF + half) {
-                c.mesh.position.z = -HALF + half;
-                c.vel.z = -c.vel.z * restitution;
-            }
+            if (c.mesh.position.x > HALF - half) { c.mesh.position.x = HALF - half; c.vel.x = -c.vel.x * restitution; }
+            else if (c.mesh.position.x < -HALF + half) { c.mesh.position.x = -HALF + half; c.vel.x = -c.vel.x * restitution; }
+            if (c.mesh.position.z > HALF - half) { c.mesh.position.z = HALF - half; c.vel.z = -c.vel.z * restitution; }
+            else if (c.mesh.position.z < -HALF + half) { c.mesh.position.z = -HALF + half; c.vel.z = -c.vel.z * restitution; }
 
-            // ligera rotación para que no caiga totalmente rígida
             c.mesh.rotation.x += 0.6 * delta;
             c.mesh.rotation.z += 0.4 * delta;
         }
@@ -506,6 +512,7 @@
         overflow: hidden;
         cursor: crosshair;
         background: #111;
+        position: relative;
     }
     h1 {
         color: #eee;
@@ -514,7 +521,48 @@
         text-align: center;
         font-weight: 600;
     }
+
+    /* HUD móvil (oculto por defecto) */
+    .hud {
+        position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .2s;
+    }
+    .hud.show { opacity: 1; }
+
+    /* Joystick */
+    .joy-base {
+        position: absolute; left: 18px; bottom: 18px; width: 140px; height: 140px;
+        border-radius: 50%; background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.2);
+        pointer-events: auto; touch-action: none;
+        display:flex; align-items:center; justify-content:center;
+    }
+    .joy-knob {
+        width: 56px; height: 56px; border-radius: 50%;
+        background: rgba(255,255,255,.24); border: 2px solid rgba(255,255,255,.4);
+        transform: translate(0,0);
+    }
+
+    /* Área de mirada (drag) + botón de disparo */
+    .look-area {
+        position: absolute; right: 0; bottom: 0; top: 0; width: 55%;
+        pointer-events: auto; touch-action: none;
+    }
+    .fire-btn {
+        position: absolute; right: 24px; bottom: 28px;
+        width: 84px; height: 84px; border-radius: 50%;
+        background: rgba(255,80,80,.35); border: 2px solid rgba(255,120,120,.6);
+        pointer-events: auto; touch-action: manipulation; color: #fff;
+        font-weight: 700;
+    }
 </style>
 
-<h1>FPS: Habitación con muebles · Rompe el jarrón o los cubos para que caiga una caja</h1>
-<div bind:this={container} class="sandbox" />
+<h1>FPS: Habitación con muebles · Rompe el jarrón o los cubos · Móvil con joystick</h1>
+<div bind:this={container} class="sandbox">
+    <!-- HUD móvil -->
+    <div class="hud" bind:this={HUD}>
+        <div class="joy-base" bind:this={joyBase}>
+            <div class="joy-knob" bind:this={joyKnob}></div>
+        </div>
+        <div class="look-area" bind:this={lookArea}></div>
+        <button class="fire-btn" bind:this={fireBtn}>FIRE</button>
+    </div>
+</div>

@@ -3,7 +3,7 @@
     import { fade, fly, scale } from "svelte/transition";
     import { onMount } from "svelte";
     import Ps2Intro from "./Ps2Intro.svelte";
-
+    import HobbiesShowcase from "./HobbiesShowcase.svelte";
     let ready = false;   // se pone a true cuando termina la intro PS2
     let show = false;    // controla animaciones de avatar/chips
 
@@ -21,26 +21,20 @@
     }
 
     async function startTypewriter() {
-        // trigger de entrada para transiciones
         show = true;
 
         const clean = intro.replace(/\*\*/g, "").replace(/\s+/g, " ").trim();
         for (let i = 0; i <= clean.length; i++) {
             rendered = clean.slice(0, i);
-            // micro-yield para no bloquear en SSR/hidratación
-            // (si hay mucha CPU, puedes bajarlo a 8–10ms)
             await new Promise((r) => setTimeout(r, speed));
         }
     }
 
     onMount(() => {
-        // Si por lo que sea localStorage falló y el componente Ps2Intro no se muestra,
-        // podemos forzar ready=true con un pequeño timeout (opcional)
         setTimeout(() => { if (!ready) ready = true; }, 0);
     });
 </script>
 
-<!-- Intro PS2 (se muestra solo si nunca se vio) -->
 <Ps2Intro on:done={() => (ready = true)} />
 
 {#if ready}
@@ -50,7 +44,6 @@
                 <div class="avatar" style="background-image: url('/assets/img/avatars/me.jpg')" />
             </div>
 
-            <!-- Chips de intereses -->
             <div class="chips">
                 <div class="chip" in:fly={{ y: 12, duration: 300, delay: 150 }}>
                     <span class="icon">💻</span> Programming
@@ -63,7 +56,6 @@
                 </div>
             </div>
 
-            <!-- Texto con efecto typewriter -->
             <p class="lead" in:fade={{ duration: 200, delay: 400 }}>
                 {rendered}<span class="cursor" aria-hidden="true" />
             </p>
@@ -71,6 +63,7 @@
             <a class="cta" href="/hire-me" in:fly={{ y: 10, duration: 250, delay: 600 }}>Hire me</a>
         </div>
     </section>
+    <HobbiesShowcase />
 {/if}
 
 <style>

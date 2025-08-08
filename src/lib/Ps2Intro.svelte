@@ -53,12 +53,10 @@
             audioEl.volume = 1;
             await audioEl.play();
         } catch (err) {
-            // Si play() falla, deja reintentar con otro tap
             started = false;
             return;
         }
 
-        // 🔪 Corte duro a los 10s
         onTick = () => {
             if (audioEl.currentTime >= CUT_AT) {
                 audioEl.pause();
@@ -67,13 +65,11 @@
         };
         audioEl.addEventListener("timeupdate", onTick as EventListener);
 
-        // Fallback: por si 'timeupdate' no saltara lo suficiente en algún navegador
         endTimer = window.setTimeout(() => {
             if (!audioEl.paused) audioEl.pause();
             finish();
         }, (CUT_AT * 1000) + 200);
 
-        // Si el audio real termina antes de 10s, también cerramos
         audioEl.addEventListener("ended", () => { finish(); }, { once: true });
     }
 

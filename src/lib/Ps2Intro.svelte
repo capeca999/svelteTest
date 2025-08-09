@@ -13,6 +13,7 @@
 
     onMount(() => {
         try {
+localStorage.setItem(KEY, "1");
                 dispatch("done");
                 return;
             }

@@ -13,7 +13,6 @@
 
     onMount(() => {
         try {
-            if (localStorage.getItem(KEY) === "1") {
                 dispatch("done");
                 return;
             }
